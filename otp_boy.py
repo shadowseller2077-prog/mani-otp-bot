@@ -2144,30 +2144,52 @@ async def admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------- ADD CHANNEL ----------
     if action == "add_channel":
-        username = text
-        if username.startswith("https://t.me/"):
-            username = "@" + username.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
-        if not re.fullmatch(r"@[A-Za-z0-9_]{5,32}", username):
-            await update.message.reply_text(
-                "❌ Valid public channel username bhejein, example: @mychannel")
-            return
-        if any(str(c.get("id")).lower() == username.lower() for c in REQUIRED_CHANNELS):
+        chat_id_input = text.strip()
+        
+        # If it's a link
+        if chat_id_input.startswith("https://t.me/"):
+            if "/+" in chat_id_input or "joinchat" in chat_id_input:
+                await update.message.reply_text("❌ Private link se directly check nahi hota. Please bot ko channel me admin banayein aur numeric Chat ID (e.g. -100...) bhejein.")
+                return
+            else:
+                chat_id_input = "@" + chat_id_input.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+        
+        if chat_id_input.lstrip("-").isdigit():
+            chat_id = int(chat_id_input)
+        else:
+            if not chat_id_input.startswith("@"):
+                chat_id_input = "@" + chat_id_input
+            if not re.fullmatch(r"@[A-Za-z0-9_]{5,32}", chat_id_input):
+                await update.message.reply_text(
+                    "❌ Valid public channel username ya numeric Chat ID (-100...) bhejein.")
+                return
+            chat_id = chat_id_input
+
+        if any(str(c.get("id")).lower() == str(chat_id).lower() for c in REQUIRED_CHANNELS):
             await update.message.reply_text("⚠️ Yeh channel already added hai.",
                                             reply_markup=admin_panel_kb())
             context.user_data.pop("admin_action", None)
             return
+            
         try:
-            chat = await context.bot.get_chat(username)
-            title = chat.title or username
+            chat = await context.bot.get_chat(chat_id)
+            title = chat.title or str(chat_id)
+            if chat.username:
+                url = f"https://t.me/{chat.username}"
+            else:
+                url = chat.invite_link
+                if not url:
+                    url = await context.bot.export_chat_invite_link(chat_id)
         except Exception as exc:
             logger.warning("admin channel validation failed: %s", exc)
             await update.message.reply_text(
-                "❌ Channel nahi mila ya bot ko access nahi hai.")
+                "❌ Channel/Group nahi mila ya bot ko wahan admin access nahi hai. Bot ko admin banayein aur try karein.")
             return
+            
         REQUIRED_CHANNELS.append({
-            "id": username,
+            "id": chat_id,
             "label": title,
-            "url": f"https://t.me/{username.lstrip('@')}",
+            "url": url,
         })
         _save_required_channels()
         context.user_data.pop("admin_action", None)
