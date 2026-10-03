@@ -3202,6 +3202,22 @@ def main():
         text_router))
     app.add_error_handler(_telegram_error_handler)
 
+    async def _dummy_web_server():
+        from aiohttp import web
+        import os
+        async def handle(request):
+            return web.Response(text="Bot is running!")
+        app = web.Application()
+        app.router.add_get('/', handle)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        port = int(os.environ.get("PORT", 8080))
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        print(f"Dummy web server started on port {port}")
+        # Keep the coroutine alive so runner/site aren't garbage collected
+        await asyncio.Event().wait()
+
     async def _post_init(application):
         global bot_instance, BOT_USERNAME
         bot_instance = application.bot
@@ -3216,6 +3232,8 @@ def main():
             _maintenance_loop(application.bot))
         application.bot_data["device_refresh_task"] = asyncio.create_task(
             _global_device_refresh_loop())
+        application.bot_data["web_server_task"] = asyncio.create_task(
+            _dummy_web_server())
 
     async def _post_stop_with_cleanup(application):
         task = application.bot_data.pop("maintenance_task", None)
@@ -3226,6 +3244,10 @@ def main():
         if task and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        web_task = application.bot_data.pop("web_server_task", None)
+        if web_task and not web_task.done():
+            web_task.cancel()
+            await asyncio.gather(web_task, return_exceptions=True)
         await _post_stop(application)
 
     app.post_init = _post_init
